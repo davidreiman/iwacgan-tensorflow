@@ -14,17 +14,19 @@ from visualize import *
 
 
 class WassersteinGAN(object):
-    def __init__(self, g_net, d_net, x_sampler, y_sampler, z_sampler, data, model, scale=10.0):
+    def __init__(self, g_net, d_net, c_net, x_sampler, y_sampler, z_sampler, data, model, scale=10.0):
         self.model = model
         self.data = data
         self.g_net = g_net
         self.d_net = d_net
+        self.c_net = c_net
         self.x_sampler = x_sampler
         self.y_sampler = y_sampler
         self.z_sampler = z_sampler
-        self.x_dim = self.d_net.x_dim
-        self.y_dim = self.g_net.y_dim
+        self.x_dim = self.g_net.x_dim
+        self.y_dim = self.c_net.y_dim
         self.z_dim = self.g_net.z_dim
+
         self.x = tf.placeholder(tf.float32, [None, self.x_dim], name='x')
         self.y = tf.placeholder(tf.float32, [None, self.y_dim], name='y') # Real
         self.y_ = tf.placeholder(tf.float32, [None, self.y_dim], name='y_') # Fake
@@ -32,13 +34,17 @@ class WassersteinGAN(object):
 
         self.x_ = self.g_net(self.z, self.y_)
 
-        self.d, self.dlogits = self.d_net(self.x, reuse=False)
-        self.d_, self.d_logits= self.d_net(self.x_)
+        self.d = self.d_net(self.x, reuse=False)
+        self.d_ = self.d_net(self.x_)
+
+        self.c = self.c_net(self.x, reuse=False)
+        self.c_ = self.c_net(self.x_)
 
         self.g_loss = tf.reduce_mean(self.d_)
         self.d_loss = tf.reduce_mean(self.d) - tf.reduce_mean(self.d_)
-        self.c_loss_r = tf.losses.softmax_cross_entropy(self.y, self.dlogits)
-        self.c_loss_f = tf.losses.softmax_cross_entropy(self.y_, self.d_logits)
+
+        self.c_loss_r = tf.losses.softmax_cross_entropy(self.y, self.c)
+        self.c_loss_f = tf.losses.softmax_cross_entropy(self.y_, self.c_)
 
         self.c_loss = 0.5*(self.c_loss_r + self.c_loss_f)
 
@@ -47,24 +53,26 @@ class WassersteinGAN(object):
         d_hat = self.d_net(x_hat)
 
         ddx = tf.gradients(d_hat, x_hat)[0]
-        # print(ddx.get_shape().as_list())
         ddx = tf.sqrt(tf.reduce_sum(tf.square(ddx), axis=1))
         ddx = tf.reduce_mean(tf.square(ddx - 1.0) * scale)
 
-        self.d_loss = self.d_loss + ddx + self.c_loss
-        self.g_loss = self.g_loss + self.c_loss_f
+        self.d_loss = self.d_loss + ddx
 
-        self.d_adam, self.g_adam = None, None
+        self.d_adam, self.g_adam, self.g_c_adam, self.c_adam = None, None, None, None
         with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
             self.d_adam = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9)\
                 .minimize(self.d_loss, var_list=self.d_net.vars)
             self.g_adam = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9)\
                 .minimize(self.g_loss, var_list=self.g_net.vars)
+            self.g_c_adam = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9)\
+                .minimize(self.c_loss_f, var_list=self.g_net.vars)
+            self.c_adam = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9)\
+                .minimize(self.c_loss, var_list=self.c_net.vars)
 
         gpu_options = tf.GPUOptions(allow_growth=True)
         self.sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
 
-    def train(self, batch_size=64, num_batches=1000000):
+    def train(self, batch_size=64, num_batches=1000000, c_interv=2.):
         plt.ion()
         self.sess.run(tf.global_variables_initializer())
         start_time = time.time()
@@ -74,15 +82,30 @@ class WassersteinGAN(object):
             if t % 500 == 0 or t < 25:
                 d_iters = 100
 
+            # Train critic
             for _ in range(0, d_iters):
                 bx, by = self.x_sampler(batch_size)
                 bz = self.z_sampler(batch_size, self.z_dim)
                 by_ = self.y_sampler(batch_size, self.y_dim)
                 self.sess.run(self.d_adam, feed_dict={self.x: bx, self.y: by, self.y_: by_, self.z: bz})
 
+            # Train generator on critic
             bz = self.z_sampler(batch_size, self.z_dim)
             by_ = self.y_sampler(batch_size, self.y_dim)
             self.sess.run(self.g_adam, feed_dict={self.z: bz, self.y: by, self.y_: by_, self.x: bx})
+
+            if t % c_interv == 0:
+                # Train generator on classifier
+                bx, by = self.x_sampler(batch_size)
+                bz = self.z_sampler(batch_size, self.z_dim)
+                by_ = self.y_sampler(batch_size, self.y_dim)
+                self.sess.run(self.g_c_adam, feed_dict={self.z: bz, self.y: by, self.y_: by_, self.x: bx})
+
+                # Train classifier
+                bx, by = self.x_sampler(batch_size)
+                bz = self.z_sampler(batch_size, self.z_dim)
+                by_ = self.y_sampler(batch_size, self.y_dim)
+                self.sess.run(self.c_adam, feed_dict={self.z: bz, self.y: by, self.y_: by_, self.x: bx})
 
             if t % 100 == 0 and t != 0:
                 bx, by = self.x_sampler(batch_size)
@@ -100,10 +123,8 @@ class WassersteinGAN(object):
                 )
 
 
-                print('Iter [%8d] Time [%5.4f] d_loss [%.4f] g_loss [%.4f]' %
-                        (t, time.time() - start_time, d_loss, g_loss))
-
-                print('Compare Wasserstein loss ({}) to categorical loss ({}).'.format(d_loss, c_loss))
+                print('Iter [%8d] Time [%5.4f] d_loss [%.4f] g_loss [%.4f] c_loss [%.4f]' %
+                        (t, time.time() - start_time, d_loss, g_loss, c_loss))
 
             if t % 100 == 0:
                 bz = self.z_sampler(self.y_dim, self.z_dim)
@@ -138,7 +159,8 @@ if __name__ == '__main__':
     xs = data.DataSampler()
     ys = data.LabelSampler()
     zs = data.NoiseSampler()
-    d_net = model.Discriminator(X_DIM, Y_DIM)
-    g_net = model.Generator(X_DIM, Y_DIM, Z_DIM)
-    wgan = WassersteinGAN(g_net, d_net, xs, ys, zs, args.data, args.model)
+    d_net = model.Discriminator()
+    g_net = model.Generator(Z_DIM, X_DIM)
+    c_net = model.Classifier(Y_DIM)
+    wgan = WassersteinGAN(g_net, d_net, c_net, xs, ys, zs, args.data, args.model)
     wgan.train()
