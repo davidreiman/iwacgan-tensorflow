@@ -16,3 +16,10 @@ class DataSampler(object):
 class NoiseSampler(object):
     def __call__(self, batch_size, z_dim):
         return np.random.uniform(-1.0, 1.0, [batch_size, z_dim])
+
+class LabelSampler(object):
+    def __call__(self, batch_size, y_dim):
+        rand_labels = np.random.randint(0, y_dim, size=batch_size)
+        labels = np.zeros((batch_size, y_dim))
+        labels[range(batch_size), rand_labels] = 1
+        return labels
