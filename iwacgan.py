@@ -14,7 +14,7 @@ from visualize import *
 
 
 class WassersteinGAN(object):
-    def __init__(self, g_net, d_net, c_net, x_sampler, y_sampler, z_sampler, data, model, scale=10.0):
+    def __init__(self, g_net, d_net, c_net, x_sampler, y_sampler, z_sampler, data, model, save_dir, scale=10.0):
         self.model = model
         self.data = data
         self.g_net = g_net
@@ -23,9 +23,16 @@ class WassersteinGAN(object):
         self.x_sampler = x_sampler
         self.y_sampler = y_sampler
         self.z_sampler = z_sampler
+        self.save_dir = save_dir
         self.x_dim = self.g_net.x_dim
         self.y_dim = self.c_net.y_dim
         self.z_dim = self.g_net.z_dim
+
+        if not self.save_dir.endswith('/'):
+            self.save_dir += '/'
+
+        if not os.path.isdir(self.save_dir):
+            os.mkdir(self.save_dir)
 
         self.x = tf.placeholder(tf.float32, [None, self.x_dim], name='x')
         self.y = tf.placeholder(tf.float32, [None, self.y_dim], name='y') # Real
@@ -139,7 +146,7 @@ class WassersteinGAN(object):
                     axes[i].imshow(bx[i])
                     axes[i].axis('off')
 
-                fig.savefig('logs/images/{}.png'.format(t/100))
+                fig.savefig(self.save_dir + '{}.png'.format(int(t/100)))
                 plt.close()
 
 
@@ -152,6 +159,7 @@ if __name__ == '__main__':
     parser.add_argument('--data', type=str, default='models')
     parser.add_argument('--model', type=str, default='mlp')
     parser.add_argument('--gpus', type=str, default='0')
+    parser.add_argument('--save_dir', type=str, default='logs/images/')
     args = parser.parse_args()
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpus
     data = importlib.import_module(args.data)
@@ -162,5 +170,5 @@ if __name__ == '__main__':
     d_net = model.Discriminator()
     g_net = model.Generator(Z_DIM, X_DIM)
     c_net = model.Classifier(Y_DIM)
-    wgan = WassersteinGAN(g_net, d_net, c_net, xs, ys, zs, args.data, args.model)
+    wgan = WassersteinGAN(g_net, d_net, c_net, xs, ys, zs, args.data, args.model, args.save_dir)
     wgan.train()
