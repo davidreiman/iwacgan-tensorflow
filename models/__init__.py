@@ -8,7 +8,9 @@ class DataSampler(object):
         self.shape = [28, 28, 1]
 
     def __call__(self, batch_size):
-        return mnist.train.next_batch(batch_size)
+        images, labels = mnist.train.next_batch(batch_size)
+        images = 2*images - 1
+        return images, labels
 
     def data2img(self, data):
         return np.reshape(data, [data.shape[0]] + self.shape)

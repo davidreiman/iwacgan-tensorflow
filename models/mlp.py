@@ -7,9 +7,7 @@ def leaky_relu(x, alpha=0.1):
 
 
 class Discriminator(object):
-    def __init__(self, x_dim, y_dim, name='mlp-discriminator'):
-        self.x_dim = x_dim
-        self.y_dim = y_dim
+    def __init__(self, name='mlp-discriminator'):
         self.name = name
 
     def __call__(self, x, reuse=True):
@@ -35,13 +33,9 @@ class Discriminator(object):
                 activation_fn=tf.identity
             )
             fc3 = leaky_relu(fc3)
-            class_logits = tc.layers.fully_connected(
-                fc3, self.y_dim,
-                weights_initializer=tf.random_normal_initializer(stddev=0.02),
-                activation_fn=tf.identity
-            )
             fc4 = tc.layers.fully_connected(fc3, 1, activation_fn=tf.identity)
-            return fc4, class_logits
+
+            return fc4
 
     @property
     def vars(self):
@@ -52,10 +46,9 @@ class Discriminator(object):
 
 
 class Generator(object):
-    def __init__(self, x_dim, y_dim, z_dim, name='mlp-generator'):
-        self.x_dim = x_dim
-        self.y_dim = y_dim
+    def __init__(self, z_dim, x_dim, name='mlp-generator'):
         self.z_dim = z_dim
+        self.x_dim = x_dim
         self.name = name
 
     def __call__(self, z, y):
@@ -87,7 +80,7 @@ class Generator(object):
                 fc, self.x_dim,
                 weights_initializer=tf.random_normal_initializer(stddev=0.02),
                 weights_regularizer=tc.layers.l2_regularizer(2.5e-5),
-                activation_fn=tf.sigmoid
+                activation_fn=tf.tanh
             )
             return fc
 
@@ -96,13 +89,14 @@ class Generator(object):
         return [var for var in tf.global_variables() if self.name in var.name]
 
 class Classifier(object):
-    def __init__(self, x_dim, y_dim, name='mlp-classifier'):
-        self.x_dim = x_dim
+    def __init__(self, y_dim, name='mlp-classifier'):
         self.y_dim = y_dim
         self.name = name
 
-    def __call__(self, x):
+    def __call__(self, x, reuse=True):
         with tf.variable_scope(self.name) as vs:
+            if reuse:
+                vs.reuse_variables()
 
             fc1 = tc.layers.fully_connected(
                 x, 1024,
@@ -125,7 +119,11 @@ class Classifier(object):
             class_logits = tc.layers.fully_connected(
                 fc3, self.y_dim,
                 weights_initializer=tf.random_normal_initializer(stddev=0.02),
-                activation_fn=tcl.batch_norm
+                activation_fn=tf.identity
             )
 
         return class_logits
+
+    @property
+    def vars(self):
+        return [var for var in tf.global_variables() if self.name in var.name]
