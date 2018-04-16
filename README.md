@@ -1,6 +1,6 @@
-## Wasserstein GAN
+## Improved Wasserstein Auxiliary Classifier GAN
 
-Tensorflow implementation of improved Wasserstein auxiliary classifier GAN.
+Tensorflow implementation of IWACGAN.
 
 How to run (currently only tested on MNIST):
 
